@@ -2,11 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from io import BytesIO
+from fpdf import FPDF
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Hotel Benhur Liquor Order", layout="wide")
 st.title("🥃 Rocks & Brews: Purchase Order Generator")
-st.write("Upload your Closing Stock and Sales reports to instantly calculate your next liquor order.")
+st.write("Upload your Closing Stock and Sales reports (XLSX or XLS) to instantly calculate your next liquor order.")
 
 # --- SIDEBAR: HARDCODED LISTS ---
 st.sidebar.header("⚙️ Configuration")
@@ -21,23 +22,22 @@ bottles_700ml = [b.strip().upper() for b in bottles_700ml_input.split('\n') if b
 # --- MAIN UI: FILE UPLOADS ---
 col1, col2 = st.columns(2)
 with col1:
-    stock_file = st.file_uploader("1. Upload Stock File (Excel)", type=['xlsx'])
+    # UPDATED: Now accepts both xlsx and xls
+    stock_file = st.file_uploader("1. Upload Stock File", type=['xlsx', 'xls'])
 with col2:
-    sales_file = st.file_uploader("2. Upload Sales File (Excel)", type=['xlsx'])
+    sales_file = st.file_uploader("2. Upload Sales File", type=['xlsx', 'xls'])
 
 # --- CORE LOGIC ---
 def load_smart_excel(file_obj):
-    # Read the raw file without assuming headers
-    df = pd.read_excel(file_obj, header=None, engine='openpyxl')
+    # UPDATED: Removed engine='openpyxl' so Pandas auto-detects xls vs xlsx
+    df = pd.read_excel(file_obj, header=None)
     
-    # Scan down the file to find the row that contains the word "Name"
     header_idx = 0
     for idx, row in df.iterrows():
         if row.astype(str).str.contains('Name', case=False, na=False).any():
             header_idx = idx
             break
             
-    # Set the correct row as the header and drop the junk above it
     df.columns = df.iloc[header_idx].astype(str).str.strip()
     df_clean = df.iloc[header_idx + 1:].reset_index(drop=True)
     return df_clean
@@ -47,7 +47,6 @@ def process_and_filter_data(df):
     actual_cols = {}
     
     for size in sizes:
-        # Removes spaces so '1L' and '1 l' both work perfectly
         matching_cols = [c for c in df.columns if str(c).lower().replace(" ", "").startswith(size)]
         actual_cols[size] = matching_cols[-1] if matching_cols else None
 
@@ -92,12 +91,50 @@ def custom_round(x):
     else:
         return int(abs_x) * sign
 
+# --- PDF GENERATOR ---
+def create_pdf(df):
+    pdf = FPDF(orientation='L', unit='mm', format='A4')
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    # Title
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, "Rocks & Brews - Liquor Purchase Order", ln=True, align='C')
+    pdf.ln(5)
+
+    # Table Headers
+    pdf.set_font("Arial", 'B', 9)
+    col_widths = [55, 20, 25, 20, 20, 20, 117] # Fits perfectly on A4 Landscape
+    headers = ["Name", "1L", "750/700ml", "500ml", "375ml", "180ml", "Math Audit"]
+
+    for i, header in enumerate(headers):
+        pdf.cell(col_widths[i], 10, header, border=1, align='C')
+    pdf.ln()
+
+    # Table Rows
+    pdf.set_font("Arial", '', 8)
+    for _, row in df.iterrows():
+        # Truncate strings slightly so they don't break the PDF table layout
+        pdf.cell(col_widths[0], 8, str(row['Name'])[:35], border=1)
+        pdf.cell(col_widths[1], 8, str(row['1-Litre Required']), border=1, align='C')
+        pdf.cell(col_widths[2], 8, str(row['750ml/700ml Required']), border=1, align='C')
+        pdf.cell(col_widths[3], 8, str(row['500ml Required']), border=1, align='C')
+        pdf.cell(col_widths[4], 8, str(row['375ml Required']), border=1, align='C')
+        pdf.cell(col_widths[5], 8, str(row['180ml Required']), border=1, align='C')
+        pdf.cell(col_widths[6], 8, str(row['Math Audit'])[:90], border=1)
+        pdf.ln()
+
+    # Export to bytes securely
+    try:
+        return bytes(pdf.output())
+    except:
+        return pdf.output(dest='S').encode('latin-1')
+
 # --- EXECUTION ---
 if stock_file and sales_file:
     if st.button("Generate Purchase Order", type="primary"):
         with st.spinner("Calculating inventory..."):
             
-            # Use the new Smart Excel loader
             stock_df = load_smart_excel(stock_file)
             sales_df = load_smart_excel(sales_file)
             
@@ -106,6 +143,10 @@ if stock_file and sales_file:
             stock_df_clean = process_and_filter_data(stock_df)
             sales_df_clean = process_and_filter_data(sales_df)
             
+            # Alias Fixer for POS Typos
+            sales_df_clean['Name'] = sales_df_clean['Name'].replace({'JAL JAWAN RUM': 'JAI JAWAN RUM'})
+            stock_df_clean['Name'] = stock_df_clean['Name'].replace({'JAL JAWAN RUM': 'JAI JAWAN RUM'})
+
             if stock_df_clean.empty or sales_df_clean.empty:
                 st.error("Could not find valid data. Please ensure your Excel files have a 'Name' and '60' column.")
                 st.stop()
@@ -175,15 +216,13 @@ if stock_file and sales_file:
             st.success("✅ Purchase Order Generated Successfully!")
             st.dataframe(final_output, use_container_width=True)
             
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                final_output.to_excel(writer, index=False, sheet_name='Order')
-            processed_data = output.getvalue()
+            # Generate the PDF Document
+            pdf_data = create_pdf(final_output)
             
             st.download_button(
-                label="📥 Download Excel Purchase Order",
-                data=processed_data,
-                file_name="Benhur_Liquor_Order.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                label="📥 Download PDF Purchase Order",
+                data=pdf_data,
+                file_name="Benhur_Liquor_Order.pdf",
+                mime="application/pdf",
                 type="primary"
             )
