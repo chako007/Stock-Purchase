@@ -60,7 +60,8 @@ def process_and_filter_data(df):
     df['Category'] = df['Category'].astype(str).str.strip().str.upper()
     df = df[~df['Name'].isin(['nan', 'NaN', '', 'None'])]
     
-    allowed_liquor = ['WHISKY', 'BRANDY', 'RUM', 'GIN', 'VODKA', 'WINE', 'BEER']
+    # NEW FIX: Added TEQUILA, LIQUIER, and LIQUEUR
+    allowed_liquor = ['WHISKY', 'BRANDY', 'RUM', 'GIN', 'VODKA', 'WINE', 'BEER', 'TEQUILA', 'LIQUIER', 'LIQUEUR']
     pattern_str = '|'.join(allowed_liquor)
     df = df[df['Category'].str.contains(pattern_str, case=False, na=False)]
     
@@ -174,7 +175,6 @@ if stock_file and sales_file:
             st.success("✅ Purchase Order Generated Successfully!")
             st.dataframe(final_output, use_container_width=True)
             
-            # Convert dataframe directly to a UTF-8 CSV file
             csv_data = final_output.to_csv(index=False).encode('utf-8')
             
             st.download_button(
