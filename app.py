@@ -180,7 +180,7 @@ if stock_file and sales_file:
             st.download_button(
                 label="📥 Download CSV Purchase Order",
                 data=csv_data,
-                file_name="Benhur_Liquor_Order.csv",
+                file_name="Liquor_Order.csv",
                 mime="text/csv",
                 type="primary"
             )
