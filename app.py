@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from io import BytesIO
-from fpdf import FPDF
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Hotel Benhur Liquor Order", layout="wide")
@@ -22,14 +21,12 @@ bottles_700ml = [b.strip().upper() for b in bottles_700ml_input.split('\n') if b
 # --- MAIN UI: FILE UPLOADS ---
 col1, col2 = st.columns(2)
 with col1:
-    # UPDATED: Now accepts both xlsx and xls
     stock_file = st.file_uploader("1. Upload Stock File", type=['xlsx', 'xls'])
 with col2:
     sales_file = st.file_uploader("2. Upload Sales File", type=['xlsx', 'xls'])
 
 # --- CORE LOGIC ---
 def load_smart_excel(file_obj):
-    # UPDATED: Removed engine='openpyxl' so Pandas auto-detects xls vs xlsx
     df = pd.read_excel(file_obj, header=None)
     
     header_idx = 0
@@ -91,45 +88,6 @@ def custom_round(x):
     else:
         return int(abs_x) * sign
 
-# --- PDF GENERATOR ---
-def create_pdf(df):
-    pdf = FPDF(orientation='L', unit='mm', format='A4')
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-
-    # Title
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, "Rocks & Brews - Liquor Purchase Order", ln=True, align='C')
-    pdf.ln(5)
-
-    # Table Headers
-    pdf.set_font("Arial", 'B', 9)
-    col_widths = [55, 20, 25, 20, 20, 20, 117] # Fits perfectly on A4 Landscape
-    headers = ["Name", "1L", "750/700ml", "500ml", "375ml", "180ml", "Math Audit"]
-
-    for i, header in enumerate(headers):
-        pdf.cell(col_widths[i], 10, header, border=1, align='C')
-    pdf.ln()
-
-    # Table Rows
-    pdf.set_font("Arial", '', 8)
-    for _, row in df.iterrows():
-        # Truncate strings slightly so they don't break the PDF table layout
-        pdf.cell(col_widths[0], 8, str(row['Name'])[:35], border=1)
-        pdf.cell(col_widths[1], 8, str(row['1-Litre Required']), border=1, align='C')
-        pdf.cell(col_widths[2], 8, str(row['750ml/700ml Required']), border=1, align='C')
-        pdf.cell(col_widths[3], 8, str(row['500ml Required']), border=1, align='C')
-        pdf.cell(col_widths[4], 8, str(row['375ml Required']), border=1, align='C')
-        pdf.cell(col_widths[5], 8, str(row['180ml Required']), border=1, align='C')
-        pdf.cell(col_widths[6], 8, str(row['Math Audit'])[:90], border=1)
-        pdf.ln()
-
-    # Export to bytes securely
-    try:
-        return bytes(pdf.output())
-    except:
-        return pdf.output(dest='S').encode('latin-1')
-
 # --- EXECUTION ---
 if stock_file and sales_file:
     if st.button("Generate Purchase Order", type="primary"):
@@ -148,7 +106,7 @@ if stock_file and sales_file:
             stock_df_clean['Name'] = stock_df_clean['Name'].replace({'JAL JAWAN RUM': 'JAI JAWAN RUM'})
 
             if stock_df_clean.empty or sales_df_clean.empty:
-                st.error("Could not find valid data. Please ensure your Excel files have a 'Name' and '60' column.")
+                st.error("Could not find valid data. Please ensure your files have a 'Name' and '60' column.")
                 st.stop()
             
             merged = pd.merge(sales_df_clean, stock_df_clean, on='Name', suffixes=('_sales', '_stock'), how='outer')
@@ -212,17 +170,17 @@ if stock_file and sales_file:
             )
             final_output = final_output.sort_values(by='Original_Order').drop(columns=['Original_Order'])
             
-            # --- DISPLAY & DOWNLOAD ---
+            # --- DISPLAY & DOWNLOAD CSV ---
             st.success("✅ Purchase Order Generated Successfully!")
             st.dataframe(final_output, use_container_width=True)
             
-            # Generate the PDF Document
-            pdf_data = create_pdf(final_output)
+            # Convert dataframe directly to a UTF-8 CSV file
+            csv_data = final_output.to_csv(index=False).encode('utf-8')
             
             st.download_button(
-                label="📥 Download PDF Purchase Order",
-                data=pdf_data,
-                file_name="Benhur_Liquor_Order.pdf",
-                mime="application/pdf",
+                label="📥 Download CSV Purchase Order",
+                data=csv_data,
+                file_name="Benhur_Liquor_Order.csv",
+                mime="text/csv",
                 type="primary"
             )
